@@ -361,6 +361,81 @@ docker logs -f <container_id>
 3. 在 Dockerfile 中添加 `flask`，重新构建，然后在 5000 端口运行一个简单的 API 服务器。使用 `-p 5000:5000` 映射端口
 4. 用 `docker images` 查看镜像大小。尝试将基础镜像从 `devel` 换成 `runtime`，比较大小差异
 
+## 国内环境踩坑指南
+
+### 坑 1：Docker Hub 镜像拉取超时
+
+国内直接访问 `docker.io` 会超时，`docker build` 第一步就卡住。
+
+**解决办法：** 配置 Docker 镜像加速。打开 Docker Desktop → Settings → Docker Engine，添加：
+
+```json
+{
+  "registry-mirrors": [
+    "https://mirror.ccs.tencentyun.com",
+    "https://docker.m.daocloud.io"
+  ]
+}
+```
+
+阿里内网用户可以使用：
+
+```json
+{
+  "registry-mirrors": [
+    "http://yum.tbsite.net/mirrors"
+  ],
+  "insecure-registries": [
+    "yum.tbsite.net"
+  ]
+}
+```
+
+配置后点 Apply & Restart。
+
+### 坑 2：容器内 pip install 超时
+
+Docker 镜像加速只解决拉取基础镜像的问题。容器**内部**的 `pip install` 仍然访问国外的 PyPI（`files.pythonhosted.org`），同样会超时。
+
+**解决办法：** 在 Dockerfile 的 `RUN pip install` 命令中指定国内 PyPI 源：
+
+```dockerfile
+RUN pip install --no-cache-dir \
+    -i https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com \
+    openai python-dotenv
+```
+
+### 坑 3：COPY 路径在容器内层级不够
+
+本机的脚本可能依赖相对路径（如 `Path(__file__).parents[4]`）来查找 `.env` 文件。COPY 到容器后目录层级变了，会报 `IndexError`。
+
+**解决办法：** 容器中通过 `-e` 传环境变量，不依赖 `.env` 文件：
+
+```bash
+docker run --rm -e DASHSCOPE_API_KEY=你的key my-app
+```
+
+或者在 docker-compose.yml 中：
+
+```yaml
+environment:
+  - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+```
+
+### 坑 4：没有 GPU 的 Mac 用户
+
+课程 Dockerfile 默认基于 `nvidia/cuda` 镜像，Mac 用户无法使用。
+
+**解决办法：** 基础镜像改为 `python:3.12-slim`，去掉所有 GPU 相关配置：
+
+```dockerfile
+FROM python:3.12-slim
+# 不需要 CUDA，直接装 Python 包即可
+```
+
+docker-compose.yml 中删除 `deploy.resources` 那一整块 GPU 配置。
+
 ## 关键术语
 
 | 术语 | 通俗说法 | 实际含义 |
